@@ -27,6 +27,9 @@
     <ClInclude Include="RoomManager.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="IOCPManager.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -36,6 +39,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="RoomManager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="IOCPManager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

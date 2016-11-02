@@ -1,4 +1,5 @@
 #pragma once
+
 class RoomManager
 {
 public:
@@ -7,15 +8,7 @@ public:
 
 private:
 
-	struct Session : OVERLAPPED
-	{
-		SOCKET socket;
-
-	};
-	void Start();
-	void ThreadProc();
 
 private:
-	HANDLE iocp;
 };
 
