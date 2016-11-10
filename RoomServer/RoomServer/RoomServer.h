@@ -9,6 +9,7 @@ public:
 	void Start();
 
 private:
+	void ProcessMessage();
 	struct Room
 	{
 		int player1;

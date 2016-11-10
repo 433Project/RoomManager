@@ -1,5 +1,5 @@
 #pragma once
-#include <WinSock2.h>
+#include <winSock2.h>
 #include <vector>
 #include <queue>
 #include <thread>
@@ -8,11 +8,12 @@ class IOCPManager
 {
 public:
 	~IOCPManager();
-	void Init(int bufferSize);
+	void Init(int bufferSize, int csPort, std::string csIp);
 	void Start();
 	void ShutDown();
 	void Send(char* data, int length);
 	WSABUF* GetReceivedMessage();
+	void Connect();
 
 private:
 
@@ -30,5 +31,11 @@ private:
 	SOCKET serverSocket;
 	std::vector<std::thread*> threadPool;
 	std::queue<WSABUF*> receivedMessages;
+	ULONG_PTR compKey;
+	CRITICAL_SECTION messageQueueCriticalSection;
+	CRITICAL_SECTION csSocketCriticalSection;
+	bool isConnected = false;
+	int port;
+	string ip;
 };
 

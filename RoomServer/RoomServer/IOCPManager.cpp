@@ -2,26 +2,61 @@
 #include "IOCPManager.h"
 
 
+#pragma comment(lib, "Ws2_32.lib")
+
+
 
 IOCPManager::~IOCPManager()
 {
 }
 
-void IOCPManager::Init(int bufferSize)
+void IOCPManager::Init(int bufferSize, int csPort, std::string csIp)
 {
+	WSADATA wsaData;
+	port = csPort;
+	ip = csIp;
+	InitializeCriticalSectionAndSpinCount(&messageQueueCriticalSection, 4000);
 	this->bufferSize = bufferSize;
 	iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
 
-	serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+	if (0 != ::WSAStartup(0x202, &wsaData)) {
+
+		std::cout << "WinSock Initialization Failed." << std::endl;
+
+		return;
+	}
+}
+
+void IOCPManager::Connect()
+{
+	serverSocket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
+
+	if (serverSocket == INVALID_SOCKET)
+	{
+		std::cout << "Invalid Socket" << std::endl;
+	}
 
 	sockaddr_in addr;
 	addr.sin_family = AF_INET;
-	addr.sin_port = htons(11000);
-	addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+	addr.sin_port = htons(port);
+	addr.sin_addr.s_addr = inet_addr(ip.c_str());
 
-	connect(serverSocket, (sockaddr*)&addr, sizeof(sockaddr_in));
+	while (true)
+	{
+		int ret = connect(serverSocket, (sockaddr*)&addr, sizeof(sockaddr_in));
+		if (ret == SOCKET_ERROR)
+		{
+			std::cout << "Connecting to Connection Server" << std::endl;
+			Sleep(2000);
+			continue;
+		}
+		std::cout << "Connect Success" << std::endl;
+		isConnected = true;
+		break;
+	}
 
-	CreateIoCompletionPort((HANDLE)serverSocket, iocp, (ULONG_PTR)nullptr, 0);
+	compKey = (ULONG_PTR)"CS";
+	CreateIoCompletionPort((HANDLE)serverSocket, iocp, compKey, 0);
 }
 
 void IOCPManager::Start()
@@ -31,7 +66,6 @@ void IOCPManager::Start()
 	int numOfCPU = si.dwNumberOfProcessors;
 	int numOfThreads = numOfCPU * 2;
 	this->numOfThreads = numOfThreads;
-	this->bufferSize = bufferSize;
 
 	for (int i = 0; i < numOfThreads; i++)
 	{
@@ -43,17 +77,19 @@ void IOCPManager::Start()
 
 		char* buffer = new char[bufferSize];
 		OVERLAPPED_EX* overio = new OVERLAPPED_EX();
+		overio->wsaBuffer = new WSABUF();
 		overio->wsaBuffer->buf = buffer;
 		overio->wsaBuffer->len = bufferSize;
-		WSARecv(serverSocket, overio->wsaBuffer, 1, nullptr, nullptr, overio, nullptr);
+		DWORD flags = MSG_WAITALL;
+		int ret = WSARecv(serverSocket, overio->wsaBuffer, 1, nullptr, &flags, overio, nullptr);
+		DWORD error = GetLastError();
+		if (ret == SOCKET_ERROR && error != WSA_IO_PENDING)
+		{
+			std::cout << "Connection Server is Off" << error << std::endl;
+			Sleep(2000);
+			continue;
+		}
 	}
-
-	for each(auto thread in threadPool)
-	{
-		thread->join();
-		delete thread;
-	}
-	threadPool.clear();
 }
 
 void IOCPManager::ThreadProc()
@@ -61,27 +97,54 @@ void IOCPManager::ThreadProc()
 
 	DWORD transferedBytes;
 	OVERLAPPED_EX* overLapped = nullptr;
-	PULONG_PTR dummy;
-
+	//PULONG_PTR dummy = nullptr;
+	ULONG_PTR compKEY;
 	while (TRUE)
 	{
+		if(!isConnected)
+			continue;
 		GetQueuedCompletionStatus(
 			iocp,
 			&transferedBytes,
-			dummy,
+			&compKEY,
 			(LPOVERLAPPED*)&overLapped,
 			INFINITE
 		);
+		if (transferedBytes == 0)
+		{
+			if (TryEnterCriticalSection(&csSocketCriticalSection))
+			{
+				std::cout << "Connection Server is Off" << std::endl;
+				isConnected = false;
+				Connect()
+				LeaveCriticalSection(&csSocketCriticalSection);
+			}
+			else
+			{
+				continue;
+			}
+		}
+		std::cout << (int)transferedBytes << " bytes received." << std::endl;
 
-		std::cout << transferedBytes + " bytes received." << std::endl;
-
+		EnterCriticalSection(&messageQueueCriticalSection);
 		receivedMessages.push(overLapped->wsaBuffer);
-		
+		LeaveCriticalSection(&messageQueueCriticalSection);
+		delete overLapped;
 		char* buffer = new char[bufferSize];
 		overLapped = new OVERLAPPED_EX();
+		overLapped->wsaBuffer = new WSABUF();
 		overLapped->wsaBuffer->buf = buffer;
 		overLapped->wsaBuffer->len = bufferSize;
-		WSARecv(serverSocket, overLapped->wsaBuffer, 1, NULL, NULL, overLapped, NULL);
+
+		DWORD flags = MSG_WAITALL;
+		int ret = WSARecv(serverSocket, overLapped->wsaBuffer, 1, nullptr, &flags, overLapped, nullptr);
+		DWORD error = GetLastError();
+		if (ret == SOCKET_ERROR && error != WSA_IO_PENDING)
+		{
+			std::cout << "Connection Server is Off" << error << std::endl;
+			Sleep(2000);
+			continue;
+		}
 	}
 }
 
@@ -96,13 +159,16 @@ void IOCPManager::Send(char* data, int length)
 
 WSABUF* IOCPManager::GetReceivedMessage()
 {
+	EnterCriticalSection(&messageQueueCriticalSection);
 	if (receivedMessages.size() > 0)
 	{
 		WSABUF* buf = receivedMessages.front();
 		receivedMessages.pop();
+		LeaveCriticalSection(&messageQueueCriticalSection);
 		return buf;
 	}
 
+	LeaveCriticalSection(&messageQueueCriticalSection);
 	return nullptr;
 }
 
@@ -112,6 +178,7 @@ void IOCPManager::ShutDown()
 	{
 		for each(auto thread in threadPool)
 		{
+			thread->join();
 			delete thread;
 		}
 		threadPool.clear();
