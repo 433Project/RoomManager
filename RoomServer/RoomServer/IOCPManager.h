@@ -34,8 +34,7 @@ private:
 	ULONG_PTR compKey;
 	CRITICAL_SECTION messageQueueCriticalSection;
 	CRITICAL_SECTION csSocketCriticalSection;
-	bool isConnected = false;
 	int port;
-	string ip;
+	std::string ip;
 };
 

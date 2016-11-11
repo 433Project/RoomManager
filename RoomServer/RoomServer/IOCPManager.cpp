@@ -51,7 +51,6 @@ void IOCPManager::Connect()
 			continue;
 		}
 		std::cout << "Connect Success" << std::endl;
-		isConnected = true;
 		break;
 	}
 
@@ -101,8 +100,6 @@ void IOCPManager::ThreadProc()
 	ULONG_PTR compKEY;
 	while (TRUE)
 	{
-		if(!isConnected)
-			continue;
 		GetQueuedCompletionStatus(
 			iocp,
 			&transferedBytes,
@@ -112,15 +109,17 @@ void IOCPManager::ThreadProc()
 		);
 		if (transferedBytes == 0)
 		{
+			// 구현 해야함.
 			if (TryEnterCriticalSection(&csSocketCriticalSection))
 			{
 				std::cout << "Connection Server is Off" << std::endl;
-				isConnected = false;
-				Connect()
+				closesocket(serverSocket);
+				Connect();
 				LeaveCriticalSection(&csSocketCriticalSection);
 			}
 			else
 			{
+				Sleep(1000);
 				continue;
 			}
 		}
